@@ -1,0 +1,93 @@
+https://glowing-space-couscous-jjpprqj5p4w4fqr7v-3000.app.github.devhttps://glowing-space-couscous-jjpprqj5p4w4fqr7v-3000.app.github.devversion: '3.8'
+
+services:
+  # Next.js Frontend & API
+  nextjs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - ML_SERVICE_URL=http://ml-service:8000
+      - ML_SERVICE_KEY=${ML_SERVICE_KEY}
+      - JWT_PUBLIC_KEY=${JWT_PUBLIC_KEY}
+      - TURN_HOST=${TURN_HOST}
+      - TURN_PORT=${TURN_PORT}
+      - TURN_USERNAME=${TURN_USERNAME}
+      - TURN_PASSWORD=${TURN_PASSWORD}
+      - SENTRY_DSN=${SENTRY_DSN}
+    depends_on:
+      - ml-service
+    restart: unless-stopped
+    networks:
+      - proctoring-network
+
+  # Python ML Service
+  ml-service:
+    build:
+      context: ./ml-service
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ML_SERVICE_KEY=${ML_SERVICE_KEY}
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    networks:
+      - proctoring-network
+    # For GPU support, uncomment below (requires nvidia-docker)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Redis for job queue/cache (optional)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - proctoring-network
+    volumes:
+      - redis-data:/data
+
+  # TURN server for WebRTC (optional - coturn)
+  coturn:
+    image: coturn/coturn:latest
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "5349:5349/tcp"
+      - "5349:5349/udp"
+      - "49152-65535:49152-65535/udp"
+    environment:
+      - TURN_USERNAME=${TURN_USERNAME}
+      - TURN_PASSWORD=${TURN_PASSWORD}
+    restart: unless-stopped
+    networks:
+      - proctoring-network
+    command: 
+      - "-n"
+      - "--log-file=stdout"
+      - "--listening-port=3478"
+      - "--fingerprint"
+      - "--lt-cred-mech"
+      - "--user=${TURN_USERNAME}:${TURN_PASSWORD}"
+      - "--realm=fairgig"
+      - "--external-ip=${EXTERNAL_IP}"
+
+networks:
+  proctoring-network:
+    driver: bridge
+
+volumes:
+  redis-data:
