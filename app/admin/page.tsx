@@ -24,6 +24,7 @@ export default function AdminDashboardPage() {
     avgIntegrity: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadDashboard();
@@ -31,16 +32,24 @@ export default function AdminDashboardPage() {
 
   async function loadDashboard() {
     try {
+      setError(null);
+      console.log('Loading admin dashboard...');
+      
       const user = await getCurrentUser();
+      console.log('Current user:', user);
+      
       if (!user) {
+        console.log('No user found, redirecting to login');
         router.push('/login');
         return;
       }
 
       const userProfile = await getUserProfile(user.id);
+      console.log('User profile:', userProfile);
+      
       if (!userProfile || !['admin', 'proctor'].includes(userProfile.role)) {
-        alert('Access denied. Admin or proctor role required.');
-        router.push('/dashboard');
+        setError(`Access denied. Admin or proctor role required. Your role: ${userProfile?.role || 'none'}`);
+        setLoading(false);
         return;
       }
 
@@ -99,9 +108,9 @@ export default function AdminDashboardPage() {
         flaggedSessions,
         avgIntegrity,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to load admin dashboard:', error);
-      alert('Failed to load dashboard data.');
+      setError(error.message || 'Failed to load dashboard data. Make sure you ran schema-complete.sql in Supabase.');
     } finally {
       setLoading(false);
     }
@@ -113,6 +122,48 @@ export default function AdminDashboardPage() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading admin dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="max-w-2xl w-full bg-white rounded-lg shadow-lg p-8">
+          <div className="text-red-600 text-2xl font-bold mb-4">⚠️ Error Loading Admin Dashboard</div>
+          <p className="text-gray-700 mb-6 text-lg">{error}</p>
+          
+          <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
+            <p className="text-sm text-yellow-800 font-semibold mb-2">Common Solutions:</p>
+            <ol className="text-sm text-yellow-700 list-decimal list-inside space-y-1">
+              <li>Run <code className="bg-yellow-100 px-1">schema-complete.sql</code> in Supabase SQL Editor</li>
+              <li>Set your role to 'admin': <code className="bg-yellow-100 px-1">UPDATE profiles SET role = 'admin' WHERE email = 'your@email.com';</code></li>
+              <li>Make sure you're logged in</li>
+              <li>Check browser console (F12) for more details</li>
+            </ol>
+          </div>
+          
+          <div className="space-y-3">
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full bg-primary-600 text-white px-4 py-3 rounded hover:bg-primary-700 font-medium"
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => router.push('/login')}
+              className="w-full bg-gray-200 text-gray-800 px-4 py-3 rounded hover:bg-gray-300 font-medium"
+            >
+              Go to Login
+            </button>
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="w-full bg-gray-100 text-gray-700 px-4 py-3 rounded hover:bg-gray-200 font-medium"
+            >
+              Go to Student Dashboard
+            </button>
+          </div>
         </div>
       </div>
     );
