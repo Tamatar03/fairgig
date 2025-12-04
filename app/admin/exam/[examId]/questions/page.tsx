@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
+import { getCurrentUser, getUserProfile } from '@/lib/supabase/auth';
+import { Profile } from '@/types';
 
 interface Question {
   id: string;
@@ -15,10 +17,12 @@ interface Question {
 
 export default function AdminQuestionsPage({ params }: { params: { examId: string } }) {
   const router = useRouter();
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [exam, setExam] = useState<any>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
   // Form state
   const [questionNumber, setQuestionNumber] = useState(1);
@@ -34,6 +38,25 @@ export default function AdminQuestionsPage({ params }: { params: { examId: strin
 
   async function loadExamAndQuestions() {
     try {
+      setError(null);
+      
+      // Check authentication
+      const user = await getCurrentUser();
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+
+      // Check admin role
+      const userProfile = await getUserProfile(user.id);
+      if (!userProfile || !['admin', 'proctor'].includes(userProfile.role)) {
+        setError('Access denied. Admin or proctor role required.');
+        setLoading(false);
+        return;
+      }
+      
+      setProfile(userProfile);
+
       // Load exam
       const { data: examData, error: examError } = await supabase
         .from('exams')
@@ -41,7 +64,12 @@ export default function AdminQuestionsPage({ params }: { params: { examId: strin
         .eq('id', params.examId)
         .single();
 
-      if (examError) throw examError;
+      if (examError) {
+        setError(`Failed to load exam: ${examError.message}`);
+        setLoading(false);
+        return;
+      }
+      
       setExam(examData);
 
       // Load questions
@@ -51,16 +79,20 @@ export default function AdminQuestionsPage({ params }: { params: { examId: strin
         .eq('exam_id', params.examId)
         .order('question_number');
 
-      if (questionsError) throw questionsError;
+      if (questionsError) {
+        console.error('Error loading questions:', questionsError);
+        // Don't fail completely if questions don't load
+      }
+      
       setQuestions(questionsData || []);
       
       // Set next question number
       if (questionsData && questionsData.length > 0) {
         setQuestionNumber(questionsData[questionsData.length - 1].question_number + 1);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading data:', error);
-      alert('Failed to load exam questions');
+      setError(error.message || 'Failed to load exam questions');
     } finally {
       setLoading(false);
     }
@@ -125,6 +157,48 @@ export default function AdminQuestionsPage({ params }: { params: { examId: strin
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-xl">Loading...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="max-w-md mx-auto bg-white rounded-lg shadow-lg p-8">
+          <div className="text-red-600 text-xl font-semibold mb-4">Error</div>
+          <p className="text-gray-700 mb-6">{error}</p>
+          <div className="space-y-3">
+            <button
+              onClick={() => router.push('/admin')}
+              className="w-full bg-primary-600 text-white px-4 py-2 rounded hover:bg-primary-700"
+            >
+              Go to Admin Dashboard
+            </button>
+            <button
+              onClick={() => router.push('/login')}
+              className="w-full bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300"
+            >
+              Login
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!exam) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="max-w-md mx-auto bg-white rounded-lg shadow-lg p-8">
+          <div className="text-yellow-600 text-xl font-semibold mb-4">Exam Not Found</div>
+          <p className="text-gray-700 mb-6">The exam with ID &quot;{params.examId}&quot; does not exist.</p>
+          <button
+            onClick={() => router.push('/admin')}
+            className="w-full bg-primary-600 text-white px-4 py-2 rounded hover:bg-primary-700"
+          >
+            Go to Admin Dashboard
+          </button>
+        </div>
       </div>
     );
   }

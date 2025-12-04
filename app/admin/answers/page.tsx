@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
+import { getCurrentUser, getUserProfile } from '@/lib/supabase/auth';
+import { Profile } from '@/types';
 
 interface StudentAnswer {
   id: string;
@@ -35,16 +37,51 @@ interface StudentAnswer {
 
 export default function AdminAnswersPage() {
   const router = useRouter();
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [answers, setAnswers] = useState<StudentAnswer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'flagged' | 'ungraded'>('all');
   const [selectedAnswer, setSelectedAnswer] = useState<StudentAnswer | null>(null);
   const [score, setScore] = useState('');
   const [feedback, setFeedback] = useState('');
 
   useEffect(() => {
-    loadAnswers();
-  }, [filter]);
+    checkAuth();
+  }, []);
+
+  useEffect(() => {
+    if (profile) {
+      loadAnswers();
+    }
+  }, [filter, profile]);
+
+  async function checkAuth() {
+    try {
+      setError(null);
+      
+      // Check authentication
+      const user = await getCurrentUser();
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+
+      // Check admin role
+      const userProfile = await getUserProfile(user.id);
+      if (!userProfile || !['admin', 'proctor'].includes(userProfile.role)) {
+        setError('Access denied. Admin or proctor role required.');
+        setLoading(false);
+        return;
+      }
+      
+      setProfile(userProfile);
+    } catch (error: any) {
+      console.error('Auth error:', error);
+      setError(error.message || 'Authentication failed');
+      setLoading(false);
+    }
+  }
 
   async function loadAnswers() {
     try {
@@ -69,11 +106,14 @@ export default function AdminAnswersPage() {
 
       const { data, error } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error loading answers:', error);
+        // Don't fail completely, just show empty list
+      }
+      
       setAnswers(data || []);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading answers:', error);
-      alert('Failed to load answers');
     } finally {
       setLoading(false);
     }
@@ -120,6 +160,31 @@ export default function AdminAnswersPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-xl">Loading answers...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="max-w-md mx-auto bg-white rounded-lg shadow-lg p-8">
+          <div className="text-red-600 text-xl font-semibold mb-4">Error</div>
+          <p className="text-gray-700 mb-6">{error}</p>
+          <div className="space-y-3">
+            <button
+              onClick={() => router.push('/admin')}
+              className="w-full bg-primary-600 text-white px-4 py-2 rounded hover:bg-primary-700"
+            >
+              Go to Admin Dashboard
+            </button>
+            <button
+              onClick={() => router.push('/login')}
+              className="w-full bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300"
+            >
+              Login
+            </button>
+          </div>
+        </div>
       </div>
     );
   }

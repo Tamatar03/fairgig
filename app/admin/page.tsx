@@ -138,6 +138,12 @@ export default function AdminDashboardPage() {
                 All Sessions
               </button>
               <button
+                onClick={() => router.push('/admin/answers')}
+                className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+              >
+                Grade Answers
+              </button>
+              <button
                 onClick={() => router.push('/admin/settings')}
                 className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
               >
@@ -299,6 +305,14 @@ export default function AdminDashboardPage() {
         {/* Quick Actions */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <button
+            onClick={() => router.push('/admin/exams')}
+            className="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow text-left"
+          >
+            <h3 className="font-semibold text-gray-900 mb-2">Manage Exams</h3>
+            <p className="text-sm text-gray-600">View exams and manage questions</p>
+          </button>
+
+          <button
             onClick={() => router.push('/admin/sessions?status=in_progress')}
             className="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow text-left"
           >
@@ -313,6 +327,16 @@ export default function AdminDashboardPage() {
             <h3 className="font-semibold text-gray-900 mb-2">Review Flagged Sessions</h3>
             <p className="text-sm text-gray-600">Investigate sessions with low integrity scores</p>
           </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+          <button
+            onClick={() => router.push('/admin/answers')}
+            className="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow text-left"
+          >
+            <h3 className="font-semibold text-gray-900 mb-2">Grade Answers</h3>
+            <p className="text-sm text-gray-600">Review and grade student exam answers</p>
+          </button>
 
           <button
             onClick={() => router.push('/admin/audit')}
@@ -320,6 +344,14 @@ export default function AdminDashboardPage() {
           >
             <h3 className="font-semibold text-gray-900 mb-2">Audit Logs</h3>
             <p className="text-sm text-gray-600">View system activity and admin actions</p>
+          </button>
+
+          <button
+            onClick={() => router.push('/admin/settings')}
+            className="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow text-left"
+          >
+            <h3 className="font-semibold text-gray-900 mb-2">Settings</h3>
+            <p className="text-sm text-gray-600">Configure system settings and preferences</p>
           </button>
         </div>
       </main>
