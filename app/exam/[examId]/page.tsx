@@ -10,6 +10,21 @@ import FrameSender from '@/components/exam/FrameSender';
 import LiveGauge from '@/components/exam/LiveGauge';
 import AlertList from '@/components/exam/AlertList';
 
+interface Question {
+  id: string;
+  question_number: number;
+  question_type: 'multiple_choice' | 'short_answer' | 'essay' | 'true_false';
+  question_text: string;
+  options?: string[];
+  points: number;
+}
+
+interface Answer {
+  question_id: string;
+  answer_text: string;
+  time_spent_seconds?: number;
+}
+
 export default function ExamPage() {
   const router = useRouter();
   const params = useParams();
@@ -19,6 +34,10 @@ export default function ExamPage() {
 
   const [exam, setExam] = useState<Exam | null>(null);
   const [session, setSession] = useState<ExamSession | null>(null);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [showWebcam, setShowWebcam] = useState(true);
   const [alerts, setAlerts] = useState<AlertType[]>([]);
   const [focusScore, setFocusScore] = useState<number>(1.0);
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
@@ -27,17 +46,38 @@ export default function ExamPage() {
   const [sequenceNumber, setSequenceNumber] = useState(0);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     loadExamAndSession();
     enforceFullscreen();
     preventTabSwitch();
+    startWebcam();
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       exitFullscreen();
+      stopWebcam();
     };
   }, [examId, sessionId]);
+
+  async function startWebcam() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (error) {
+      console.error('Failed to start webcam:', error);
+    }
+  }
+
+  function stopWebcam() {
+    if (videoRef.current?.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+    }
+  }
 
   async function loadExamAndSession() {
     try {
@@ -57,6 +97,16 @@ export default function ExamPage() {
       if (examError) throw examError;
       setExam(examData);
 
+      // Load questions
+      const { data: questionsData, error: questionsError } = await supabase
+        .from('questions')
+        .select('*')
+        .eq('exam_id', examId)
+        .order('question_number');
+
+      if (questionsError) throw questionsError;
+      setQuestions(questionsData || []);
+
       // Load or verify session
       if (sessionId) {
         const { data: sessionData, error: sessionError } = await supabase
@@ -68,6 +118,20 @@ export default function ExamPage() {
 
         if (sessionError) throw sessionError;
         setSession(sessionData);
+
+        // Load existing answers
+        const { data: answersData } = await supabase
+          .from('student_answers')
+          .select('*')
+          .eq('session_id', sessionId);
+
+        if (answersData) {
+          const answersMap: Record<string, string> = {};
+          answersData.forEach((a: any) => {
+            answersMap[a.question_id] = a.answer_text;
+          });
+          setAnswers(answersMap);
+        }
 
         // Calculate time remaining
         const startTime = new Date(sessionData.started_at).getTime();
@@ -204,6 +268,34 @@ export default function ExamPage() {
   function handleFrameResponse(response: any) {
     if (response.ml) {
       setFocusScore(response.ml.focus_score);
+
+  async function handleAnswerChange(questionId: string, answerText: string) {
+    if (!session) return;
+
+    // Update local state
+    setAnswers(prev => ({ ...prev, [questionId]: answerText }));
+
+    // Save to database
+    try {
+      const { error } = await supabase
+        .from('student_answers')
+        .upsert({
+          session_id: session.id,
+          question_id: questionId,
+          student_id: session.student_id,
+          answer_text: answerText,
+          answered_at: new Date().toISOString(),
+        }, {
+          onConflict: 'session_id,question_id'
+        });
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Failed to save answer:', error);
+    }
+  }
+
+  const currentQuestion = questions[currentQuestionIndex];
       if (response.ml.alerts && response.ml.alerts.length > 0) {
         const newAlerts: AlertType[] = response.ml.alerts.map((a: any) => ({
           id: crypto.randomUUID(),
@@ -308,28 +400,149 @@ export default function ExamPage() {
 
         {/* Main Exam Area */}
         <main className="flex-1 p-6 overflow-y-auto">
-          <div className="max-w-4xl mx-auto">
-            <div className="bg-gray-800 rounded-lg p-6 mb-6">
-              <h2 className="text-xl font-semibold mb-4">Exam Questions</h2>
-              <div className="prose prose-invert max-w-none">
-                <p className="text-gray-300">
-                  This is a placeholder for exam questions. In a real implementation, 
-                  questions would be loaded from the database and rendered here with 
-                  answer inputs (multiple choice, text entry, etc.).
-                </p>
-                <div className="mt-6 space-y-4">
-                  {[1, 2, 3, 4, 5].map(num => (
-                    <div key={num} className="p-4 bg-gray-700 rounded-lg">
-                      <p className="font-medium mb-2">Question {num}</p>
-                      <textarea
-                        className="w-full p-3 bg-gray-600 rounded border border-gray-500 text-white"
-                        rows={3}
-                        placeholder="Type your answer here..."
-                      />
-                    </div>
-                  ))}
+          <div className="max-w-4xl mx-auto space-y-6">
+            {/* Webcam Preview */}
+            {showWebcam && (
+              <div className="bg-gray-800 rounded-lg p-4">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-semibold">Your Webcam</h3>
+                  <button
+                    onClick={() => setShowWebcam(!showWebcam)}
+                    className="text-sm text-gray-400 hover:text-white"
+                  >
+                    {showWebcam ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+                <div className="relative bg-gray-900 rounded-lg overflow-hidden" style={{ height: '200px' }}>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    className="w-full h-full object-cover mirror"
+                    style={{ transform: 'scaleX(-1)' }}
+                  />
+                  <div className="absolute top-2 right-2 px-2 py-1 bg-red-600 rounded text-xs font-medium">
+                    ● RECORDING
+                  </div>
                 </div>
               </div>
+            )}
+
+            {/* Questions */}
+            <div className="bg-gray-800 rounded-lg p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-semibold">Questions</h2>
+                <div className="text-sm text-gray-400">
+                  {currentQuestionIndex + 1} of {questions.length}
+                </div>
+              </div>
+
+              {questions.length === 0 ? (
+                <div className="text-center py-12 text-gray-400">
+                  <p>No questions available for this exam.</p>
+                  <p className="text-sm mt-2">Please contact your administrator.</p>
+                </div>
+              ) : currentQuestion ? (
+                <div className="space-y-6">
+                  {/* Current Question */}
+                  <div className="p-6 bg-gray-700 rounded-lg">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-3">
+                          <span className="text-lg font-semibold">Question {currentQuestion.question_number}</span>
+                          <span className="text-sm bg-blue-600 px-2 py-1 rounded">
+                            {currentQuestion.question_type.replace('_', ' ')}
+                          </span>
+                          <span className="text-sm text-gray-400">{currentQuestion.points} points</span>
+                        </div>
+                        <p className="text-lg text-gray-100">{currentQuestion.question_text}</p>
+                      </div>
+                    </div>
+
+                    {/* Answer Input */}
+                    <div className="mt-6">
+                      {currentQuestion.question_type === 'multiple_choice' || currentQuestion.question_type === 'true_false' ? (
+                        <div className="space-y-3">
+                          {currentQuestion.options?.map((option, idx) => (
+                            <label
+                              key={idx}
+                              className={`flex items-center p-4 rounded-lg cursor-pointer transition-colors ${
+                                answers[currentQuestion.id] === option
+                                  ? 'bg-primary-600 border-2 border-primary-400'
+                                  : 'bg-gray-600 border-2 border-transparent hover:border-gray-500'
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name={`question-${currentQuestion.id}`}
+                                value={option}
+                                checked={answers[currentQuestion.id] === option}
+                                onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
+                                className="mr-3"
+                              />
+                              <span className="flex-1">{option}</span>
+                            </label>
+                          ))}
+                        </div>
+                      ) : currentQuestion.question_type === 'short_answer' ? (
+                        <input
+                          type="text"
+                          value={answers[currentQuestion.id] || ''}
+                          onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
+                          className="w-full p-4 bg-gray-600 rounded-lg border-2 border-gray-500 focus:border-primary-500 text-white"
+                          placeholder="Type your answer..."
+                        />
+                      ) : (
+                        <textarea
+                          value={answers[currentQuestion.id] || ''}
+                          onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
+                          className="w-full p-4 bg-gray-600 rounded-lg border-2 border-gray-500 focus:border-primary-500 text-white"
+                          rows={8}
+                          placeholder="Type your essay answer..."
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Navigation */}
+                  <div className="flex justify-between items-center">
+                    <button
+                      onClick={() => setCurrentQuestionIndex(Math.max(0, currentQuestionIndex - 1))}
+                      disabled={currentQuestionIndex === 0}
+                      className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      ← Previous
+                    </button>
+                    
+                    <div className="flex gap-2">
+                      {questions.map((q, idx) => (
+                        <button
+                          key={q.id}
+                          onClick={() => setCurrentQuestionIndex(idx)}
+                          className={`w-10 h-10 rounded-lg font-medium ${
+                            idx === currentQuestionIndex
+                              ? 'bg-primary-600'
+                              : answers[q.id]
+                              ? 'bg-green-600'
+                              : 'bg-gray-700'
+                          }`}
+                        >
+                          {q.question_number}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      onClick={() => setCurrentQuestionIndex(Math.min(questions.length - 1, currentQuestionIndex + 1))}
+                      disabled={currentQuestionIndex === questions.length - 1}
+                      className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </main>
