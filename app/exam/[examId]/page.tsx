@@ -268,6 +268,20 @@ export default function ExamPage() {
   function handleFrameResponse(response: any) {
     if (response.ml) {
       setFocusScore(response.ml.focus_score);
+      
+      if (response.ml.alerts && response.ml.alerts.length > 0) {
+        const newAlerts: AlertType[] = response.ml.alerts.map((a: any) => ({
+          id: crypto.randomUUID(),
+          code: a.code,
+          severity: a.severity,
+          description: a.description,
+          timestamp: new Date(),
+          confidence: a.confidence,
+        }));
+        setAlerts(prev => [...newAlerts, ...prev].slice(0, 20));
+      }
+    }
+  }
 
   async function handleAnswerChange(questionId: string, answerText: string) {
     if (!session) return;
@@ -296,19 +310,6 @@ export default function ExamPage() {
   }
 
   const currentQuestion = questions[currentQuestionIndex];
-      if (response.ml.alerts && response.ml.alerts.length > 0) {
-        const newAlerts: AlertType[] = response.ml.alerts.map((a: any) => ({
-          id: crypto.randomUUID(),
-          code: a.code,
-          severity: a.severity,
-          description: a.description,
-          timestamp: new Date(),
-          confidence: a.confidence,
-        }));
-        setAlerts(prev => [...newAlerts, ...prev].slice(0, 20));
-      }
-    }
-  }
 
   function formatTime(seconds: number): string {
     const hours = Math.floor(seconds / 3600);
